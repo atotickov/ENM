@@ -1,0 +1,367 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo=FALSE, message = FALSE}
+#if (!require(tidyverse)) install.packages('tidyverse')
+
+library(spocc)
+library(rgdal)
+library(raster)
+library(dismo)
+library(ggplot2)
+library(gridExtra)
+#library(enmSdm)
+library(enmSdmX)
+library(sf)
+
+
+
+setwd("/mnt/tank/scratch/atotikov/ENM")
+#source('/mnt/tank/scratch/atotikov/ENM/Setup.R')
+
+```
+
+```{r}
+# Объединенные исходные данные со всех баз данных, в двух форматах
+#saveRDS(occurrences, '/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.raw.Rds')
+#occurrences.raw <- readRDS('/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.raw.Rds')
+#write.csv(occurrences, '/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.raw.csv', row.names = FALSE)
+#occurrences.raw <- read.csv('/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.raw.csv', header = TRUE)
+
+# Файл с результатом первой фильтрации наблюдений: дубликаты, None, низкая точность, выход за ареал, годы 1970-2023 
+#saveRDS(occurrences.filtered, '/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.filtered.1970to2023.Rds')
+#occurrences.filtered <- readRDS('/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.filtered.1970to2023.Rds')
+#write.csv(occurrences.filtered, '/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.filtered.1970to2023.csv', row.names = FALSE)
+#occurrences.filtered <- read.csv('/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.filtered.1970to2023.csv', header = TRUE)
+
+# Файл с результатом первой фильтрации наблюдений: дубликаты, None, низкая точность, выход за ареал, годы 1960-2023 
+#saveRDS(occurrences.filtered, '/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.filtered.1960to2023.Rds')
+#occurrences.filtered <- readRDS('/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.filtered.1960to2023.Rds')
+#write.csv(occurrences.filtered, '/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.filtered.1960to2023.csv', row.names = FALSE)
+#occurrences.filtered <- read.csv('/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.filtered.1960to2023.csv', header = TRUE)
+
+# Объединение реальных и сгенерированных наблюдений
+#occurrences.filtered <- read.csv('/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.filtered.1960to2023.csv')
+#occurrences.manual <- read.csv('/mnt/tank/scratch/atotikov/ENM/occurrences/original/manualdataframe.csv')
+#occurrences <-rbind(occurrences.filtered, occurrences.manual)
+#write.csv(occurrences, '/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.filtered.1960to2023_and_manual.csv', row.names = FALSE)
+#saveRDS(occurrences, '/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.filtered.1960to2023_and_manual.Rds')
+
+# Еще раз фильтрануть до наблюдений в евразии
+#occurrences <- occurrences.get.data(occurrences = "/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.filtered.1960to2023_and_manual.Rds",
+#                                             species = "Mustela nivalis",
+#                                             range.shapefile = '/mnt/tank/scratch/atotikov/ENM/additional_files/musniv_range/eurasia',
+#                                             return.occurrences.filtered = TRUE)
+
+# Сохранение окончательных наблюдений
+#saveRDS(occurrences, '/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.eurasia.1960to2023.Rds')
+#write.csv(occurrences, '/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.eurasia.1960to2023.csv', row.names = FALSE)
+
+
+```
+
+```{r}
+###################################################
+# thinning distance in meters
+# https://cran.r-project.org/web/packages/enmSdmX/enmSdmX.pdf
+distances.occ <- function(input, dist.vect, output.path){
+  inp <- readRDS(input)
+  inp.sf <- sf::st_as_sf(inp, coords = c('longitude', 'latitude'), crs = getCRS('WGS84'))
+  dist.vect <- dist.vect * 1000
+  for(i in dist.vect){
+    occurrences_d <- enmSdmX::geoThin(x=inp.sf, minDist=i, random = FALSE, longLat=c('longitude', 'latitude'))
+    saveRDS(occurrences_d, paste0(output.path, "occurrences.eurasia.determ.", i, 'm.Rds'))
+    write.csv(occurrences_d, paste0(output.path, "occurrences.eurasia.determ.", i, 'm.csv'), row.names = FALSE)
+       
+    occurrences_r <- enmSdmX::geoThin(x=inp.sf, minDist=i, random = TRUE, longLat=c('longitude', 'latitude'))
+    saveRDS(occurrences_r, paste0(output.path, "occurrences.eurasia.random.", i, 'm.Rds'))
+    write.csv(occurrences_r, paste0(output.path, "occurrences.eurasia.random.", i, 'm.csv'), row.names = FALSE)
+  }
+}
+
+distances.occ(input = '/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.eurasia.1960to2023.Rds', dist.vect = 1:10, output.path = '/mnt/tank/scratch/atotikov/ENM/occurrences/dist/')
+
+
+geometry_to_lonlat <- function(x) {
+  coord_df <- sf::st_transform(x, sf::st_crs("+proj=longlat +datum=WGS84")) %>%
+    sf::st_coordinates() %>%
+    dplyr::as_tibble() %>%
+    dplyr::select(X, Y) %>%
+    dplyr::rename(lon = X, lat = Y)
+  out <- sf::st_set_geometry(x, NULL) %>%
+    dplyr::bind_cols(coord_df)
+  return(out)
+}
+
+#occurrences.sf <- sf::st_as_sf(occurrences, coords = c('longitude', 'latitude'), crs = getCRS('WGS84'))
+#occurrences_r <- enmSdmX::geoThin(x=occurrences.sf, minDist=1000, random = TRUE)
+
+
+```
+
+
+```{r}
+
+distances.occ <- function(input, dist.vect, output.path){
+  
+  #library(enmSdmX)
+  #library(sf)
+  
+  occurrences <- readRDS(input)
+  occurrences.sf <- sf::st_as_sf(occurrences, coords = c('longitude', 'latitude'), crs = getCRS('WGS84'))
+  
+  dist.vect <- dist.vect * 1000
+  
+  for(i in dist.vect){
+    
+    occurrences_d <- enmSdmX::geoThin(x=occurrences.sf, minDist=i, random = FALSE)
+    saveRDS(occurrences_d, paste0(output.path, "occurrences.eurasia.geom.determ.", i, 'm.Rds'))
+    write.csv(occurrences_d, paste0(output.path, "occurrences.eurasia.geom.determ.", i, 'm.csv'), row.names = FALSE)
+    
+    coord_df_d <- sf::st_transform(occurrences_d, sf::st_crs("+proj=longlat +datum=WGS84")) %>% 
+      sf::st_coordinates() %>%
+      dplyr::as_tibble() %>%
+      dplyr::select(X, Y) %>%
+      dplyr::rename(longitude = X, latitude = Y)
+    occurrences_d_lonlat <- sf::st_set_geometry(occurrences_d, NULL) %>%
+      dplyr::bind_cols(coord_df_d)
+    saveRDS(occurrences_d_lonlat, paste0(output.path, "occurrences.eurasia.lonlat.determ.", i, 'm.Rds'))
+    write.csv(occurrences_d_lonlat, paste0(output.path, "occurrences.eurasia.lonlat.determ.", i, 'm.csv'), row.names = FALSE)
+    
+    
+    
+    occurrences_r <- enmSdmX::geoThin(x=occurrences.sf, minDist=i, random = TRUE)
+    saveRDS(occurrences_r, paste0(output.path, "occurrences.eurasia.geom.random.", i, 'm.Rds'))
+    write.csv(occurrences_r, paste0(output.path, "occurrences.eurasia.geom.random.", i, 'm.csv'), row.names = FALSE)
+    
+    coord_df_r <- sf::st_transform(occurrences_r, sf::st_crs("+proj=longlat +datum=WGS84")) %>% 
+      sf::st_coordinates() %>%
+      dplyr::as_tibble() %>%
+      dplyr::select(X, Y) %>%
+      dplyr::rename(longitude = X, latitude = Y)
+    occurrences_r_lonlat <- sf::st_set_geometry(occurrences_r, NULL) %>%
+      dplyr::bind_cols(coord_df_r)
+    saveRDS(occurrences_r_lonlat, paste0(output.path, "occurrences.eurasia.lonlat.random.", i, 'm.Rds'))
+    write.csv(occurrences_r_lonlat, paste0(output.path, "occurrences.eurasia.lonlat.random.", i, 'm.csv'), row.names = FALSE)    
+  }
+}
+
+
+distances.occ(input = '/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.eurasia.1960to2023.Rds',
+              output.path = '/mnt/tank/scratch/atotikov/ENM/occurrences/dist/',
+              dist.vect = 7)
+```
+
+
+
+
+
+```{r}
+occurrences.det <- read.csv('/mnt/tank/scratch/atotikov/ENM/occurrences/dist/occurrences.eurasia.lonlat.determ.1000m.csv')
+occurrences.ran <- read.csv('/mnt/tank/scratch/atotikov/ENM/occurrences/dist/occurrences.eurasia.lonlat.random.1000m.csv')
+
+
+occurrences.stats.plot(occurrences.det, plot.save = TRUE, path.output = '/mnt/tank/scratch/atotikov/ENM/occurrences/dist/', output.prefix = 'eurasia.lonlat.determ.1000m.')
+occurrences.stats.plot(occurrences.ran, plot.save = TRUE, path.output = '/mnt/tank/scratch/atotikov/ENM/occurrences/dist/', output.prefix = 'eurasia.lonlat.random.1000m.')
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+#tmin.1961 <- stack(list.files(path='/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/tmin/', pattern = 'wc2.1_2.5m_tmin_1961-', full.names=TRUE))
+#tmax.1961 <- stack(list.files(path='/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/tmax/', pattern = 'wc2.1_2.5m_tmax_1961-', full.names=TRUE))
+#prec.1961 <- stack(list.files(path='/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/prec/', pattern = 'wc2.1_2.5m_prec_1961-', full.names=TRUE))
+#bioclim.1961 <- biovars(prec = prec.1961, tmin = tmin.1961, tmax = tmax.1961)
+
+#stack.create.fun(path = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/tmin/',
+#                 prefix = 'wc2.1_2.5m_tmin_',
+#                 years = 1961:2018,
+#                 output = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/tmin_stacks/',
+#                 variable = "tmin")
+
+#tmin.stack <- lapply(list(paste0('/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/tmin_stacks/tmin.', 1961:2018, '.tif')), function(file) stack(lapply(file, raster)))
+#tmin.stack <- stack(tmin.stack)
+
+#stack.create.fun(path = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/tmax/',
+#                 prefix = 'wc2.1_2.5m_tmax_',
+#                 years = 1961:2018,
+#                 output = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/tmax_stacks/',
+#                 variable = "tmax")
+
+#tmax.stack <- lapply(list(paste0('/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/tmax_stacks/tmax.', 1961:2018, '.tif')), function(file) stack(lapply(file, raster)))
+#tmax.stack <- stack(tmax.stack)
+
+#stack.create.fun(path = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/prec/',
+#                 prefix = 'wc2.1_2.5m_prec_',
+#                 years = 1961:2018,
+#                 output = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/prec_stacks/',
+#                 variable = "prec")
+
+#prec.stack <- lapply(list(paste0('/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/prec_stacks/prec.', 1961:2018, '.tif')), function(file) stack(lapply(file, raster)))
+#prec.stack <- stack(prec.stack)
+
+```
+
+
+```{r}
+#biovars.dismo(tmin.path = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/tmin_stacks/', 
+#              tmax.path = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/tmax_stacks/', 
+#              prec.path = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/prec_stacks/',
+#              output = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/bioclims/',
+#              years = 1961:2018)
+```
+
+
+```{r}
+#biostacks(inputpath = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/bioclims/',
+#          outputpath = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/bioclims/mean/',
+#          bioprefix = 'bio_',
+#          bionumb = 1:19)
+
+```
+
+
+
+
+
+```{r}
+
+resolution.change <- function(inputpath, bioprefix, bionumb, res.aggregate, outputpath){
+  cat('\nInput path: ', inputpath, '\n')
+  cat('Output path: ', outputpath, '\n')
+  cat('Bioclimatic data prefix in inputpath: ', bioprefix, '\n')
+  cat('Number of bioclimatic data: ', length(bionumb), '\n\n')
+  for(n in bionumb){
+    clim <- as.factor(paste0(bioprefix, n, '.tif'))
+    for(c in clim){
+      s <- stack(list.files(path = inputpath, pattern = c, full.names=TRUE))
+      cat('Bioclimatic data aggregation: ', '\n')
+      print(s)
+      s <- raster::aggregate(s, fact = res.aggregate, fun = mean)
+      cat(paste0('Output file preparation: ', bioprefix, n, '.tif'), '\n')
+      writeRaster(s, filename = paste0(outputpath, bioprefix, n, '.'), format = 'GTiff', overwrite=TRUE, progress = 'text')
+      cat('Done!', '\n\n')
+
+    }
+  }
+}
+
+resolution.change(inputpath = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/bioclims/mean/', 
+                  bioprefix = 'bio_', bionumb = 1:19, res.aggregate = 4, 
+                  outputpath = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/aggregate_10min/')
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+#clim.preparation(path.tifs = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/monthly/bioclims/mean/', prefix.tifs = 'bio_', 
+#                 path.range = '/mnt/tank/scratch/atotikov/ENM/additional_files/musniv_range/', prefix.range = 'data_0',
+#                 path.output = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/tif_crop/', return.tif_crop = TRUE)
+
+```
+
+
+```{r}
+worldclim <- stack(lapply(list(paste0('/mnt/tank/scratch/atotikov/ENM/climat/worldclim/tif_crop/crop_bio_', 1:19, '.tif')), function(file) stack(lapply(file, raster))))
+
+#plot(worldclim[[1]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 1: Annual Mean Temperature')
+#plot(worldclim[[2]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 2: Mean Diurnal Range (Mean of monthly (max temp - min temp))')
+#plot(worldclim[[3]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 3: Isothermality (BIO2/BIO7) (×100)')
+#plot(worldclim[[4]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 4: Temperature Seasonality (standard deviation ×100)')
+#plot(worldclim[[5]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 5: Max Temperature of Warmest Month')
+#plot(worldclim[[6]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 6: Min Temperature of Coldest Month')
+#plot(worldclim[[7]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 7: Temperature Annual Range (BIO5-BIO6)')
+#plot(worldclim[[8]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 8: Mean Temperature of Wettest Quarter')
+#plot(worldclim[[9]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 9: Mean Temperature of Driest Quarter')
+#plot(worldclim[[10]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 10: Mean Temperature of Warmest Quarter')
+#plot(worldclim[[11]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 11: Mean Temperature of Coldest Quarter')
+#plot(worldclim[[12]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 12: Annual Precipitation')
+#plot(worldclim[[13]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 13: Precipitation of Wettest Month')
+#plot(worldclim[[14]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 14: Precipitation of Driest Month')
+#plot(worldclim[[15]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 15: Precipitation Seasonality (Coefficient of Variation)')
+#plot(worldclim[[16]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 16: Precipitation of Wettest Quarter')
+#plot(worldclim[[17]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 17: Precipitation of Driest Quarter')
+#plot(worldclim[[18]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 18: Precipitation of Warmest Quarter')
+#plot(worldclim[[19]], col = viridis::magma(1000), box = F, axes = F, xlab = '', ylab = '', main = 'Bio 19: Precipitation of Coldest Quarter')
+
+#ggsave(file = '/mnt/tank/scratch/atotikov/ENM/climat/worldclim/crop_bio.png', plot = grid.arrange(bio_1, bio_2, bio_3, bio_4, bio_5, bio_6, bio_7, bio_8, bio_9, bio_10, bio_11, bio_12, bio_13, bio_14, bio_15, bio_16, bio_17, bio_18, bio_19, nrow = 5, ncol = 4), dpi = 600)
+
+```
+
+
+
+```{r}
+
+occurrences <- read.csv('/mnt/tank/scratch/atotikov/ENM/occurrences/occurrences.filtered.1960to2023.csv', header = TRUE)
+worldclim <- stack(lapply(list(paste0('/mnt/tank/scratch/atotikov/ENM/climat/worldclim/tif_crop/crop_bio_', 1:19, '.tif')), function(file) stack(lapply(file, raster))))
+
+
+# Сапоставление записей о видах с условиями окружающей среды в каждом местоположении
+worldclim.species <- as.data.frame(raster::extract(worldclim, cbind(occurrences$longitude, occurrences$latitude)))
+occurrences.worldclim <- cbind(occurrences, worldclim.species)
+
+if (any(is.na(rowSums(worldclim.species)))) occurrences.worldclim <- occurrences.worldclim[-which(is.na(rowSums(worldclim.species))), ]
+cat(paste("После удаления записей, имеющих NA в качестве данных об окружающей среде:", nrow(occurrences.worldclim), "\n"))
+
+
+
+
+#write.csv(occurrences.worldclim, "/mnt/tank/scratch/skliver/common/mustelidae/mustela_nivalis/genome/modeling/ENM/preprocessing/occurrences/Mustela_nivalis.occurrences.environment.csv", row.names = FALSE)
+
+#occurrences.worldclim <- read.csv(file ="/mnt/tank/scratch/skliver/common/mustelidae/mustela_nivalis/genome/modeling/ENM/preprocessing/occurrences/Mustela_nivalis.occurrences.environment.csv", header = TRUE)
+#worldclim <- stack(lapply(list(paste0('/mnt/tank/scratch/skliver/common/mustelidae/mustela_nivalis/genome/modeling/ENM/preprocessing/environment/environment.tif')), function(file) stack(lapply(file, raster))))
+
+occurrences.worldclim.nodups <- elimCellDups(x=occurrences.worldclim, r=worldclim, longLat=c('longitude', 'latitude'))
+cat(paste("После прореживания:", nrow(occurrences.worldclim.nodups), "\n"))
+
+hist(occurrences.worldclim.nodups$year, col = '#a3929a', xlab='Collection year', ylab='Number of occurrences', main='Collection year (1960-2023)')
+
+
+
+occurrences.stats.plot(occurrences.worldclim.nodups, plot.save = FALSE)
+
+
+thedate <- strftime(Sys.Date(),"%X-%d%m%Y")
+thefile <- paste0("/pattern~file_", thedate, ".txt")
+thefile
+
+#write.csv(occurrences.worldclim.nodups, "/mnt/tank/scratch/skliver/common/mustelidae/mustela_nivalis/genome/modeling/ENM/preprocessing/occurrences/Mustela_nivalis.occurrences.environment.nodups.csv", row.names = FALSE)
+
+#occurrences.worldclim.nodups <- read.csv(file="/mnt/tank/scratch/skliver/common/mustelidae/mustela_nivalis/genome/modeling/ENM/preprocessing/occurrences/Mustela_nivalis.occurrences.environment.nodups.csv", header = TRUE)
+
+
+```
+
+
+
+
+
+
+
